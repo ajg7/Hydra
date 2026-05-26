@@ -1,0 +1,43 @@
+# Build output
+bin/
+obj/
+
+# Visual Studio
+.vs/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+# VS Code
+.vscode/
+
+# JetBrains Rider
+.idea/
+
+# NuGet
+*.nupkg
+*.snupkg
+project.lock.json
+packages/
+.nuget/
+
+# .NET
+*.dll
+*.exe
+!**/wwwroot/**/*.dll
+
+# Logs
+*.log
+logs/
+
+# Environment / secrets
+appsettings.*.json
+!appsettings.json
+!appsettings.Development.json
+secrets.json
+.env
+
+# OS
+.DS_Store
+Thumbs.db

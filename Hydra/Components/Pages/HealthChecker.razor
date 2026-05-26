@@ -1,0 +1,117 @@
+@page "/health-checker"
+@using Hydra.Services.Interfaces
+@using Hydra.Models
+@rendermode InteractiveServer
+@inject IHealthCheckerService HealthCheckerService
+
+<h3>Health Checker</h3>
+
+<div class="mb-3">
+    <label>URL</label>
+    <InputText class="form-control" @bind-Value="_url" />
+</div>
+
+<div class="mb-3">
+    <button class="btn btn-primary" @onclick="Check">Check</button>
+</div>
+
+@if (_result != null)
+{
+    <div class="alert @(_result.IsUp ? "alert-success" : "alert-danger")">
+        <strong>@_result.Url</strong> — @_result.StatusCode — @_result.ResponseTimeMs ms — @(_result.IsUp ? "UP" : "DOWN")
+    </div>
+}
+
+<hr />
+
+<h5>Concurrent Health Check</h5>
+<div class="mb-3">
+    <label>URLs (one per line)</label>
+    <textarea class="form-control" rows="6" @bind="_urls" />
+</div>
+<div class="mb-3">
+    <label>Max Concurrency</label>
+    <InputNumber class="form-control" style="width:100px" @bind-Value="_maxConcurrency" />
+</div>
+
+<div class="mb-3 d-flex gap-2">
+    <button class="btn btn-primary" @onclick="CheckMany" disabled="@_isRunning">Check Many</button>
+    @if (_isRunning)
+    {
+        <button class="btn btn-danger" @onclick="Stop">Stop</button>
+        <span class="align-self-center text-muted">@_activeCount / @_urlStates.Count active...</span>
+    }
+</div>
+
+@if (_urlStates.Count > 0)
+{
+    <table class="table table-sm">
+        <thead>
+            <tr>
+                <th>URL</th>
+                <th>Status</th>
+                <th>Code</th>
+                <th>Time (ms)</th>
+                <th>Result</th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var (url, result) in _urlStates)
+            {
+                <tr class="@(result == null ? "table-warning" : result.IsUp ? "table-success" : "table-danger")">
+                    <td>@url</td>
+                    <td>@(result == null ? "Checking..." : (result.IsUp ? "UP" : "DOWN"))</td>
+                    <td>@(result?.StatusCode?.ToString() ?? "—")</td>
+                    <td>@(result == null ? "—" : result.ResponseTimeMs.ToString())</td>
+                    <td>@(result?.Error ?? "")</td>
+                </tr>
+            }
+        </tbody>
+    </table>
+}
+
+@code {
+    private string _url = string.Empty;
+    private string _urls = string.Empty;
+    private int _maxConcurrency = 5;
+    private bool _isRunning;
+    private int _activeCount;
+    private HealthCheckResult? _result;
+    private Dictionary<string, HealthCheckResult?> _urlStates = [];
+    private CancellationTokenSource? _cts;
+
+    private async Task Check() =>
+        _result = await HealthCheckerService.CheckAsync(_url, CancellationToken.None);
+
+    private async Task CheckMany()
+    {
+        var urls = _urls.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList();
+        if (urls.Count == 0) return;
+
+        _cts = new CancellationTokenSource();
+        _isRunning = true;
+        _activeCount = urls.Count;
+        _urlStates = urls.ToDictionary(u => u, _ => (HealthCheckResult?)null);
+
+        var progress = new Progress<HealthCheckResult>(result =>
+        {
+            _urlStates[result.Url] = result;
+            _activeCount--;
+            InvokeAsync(StateHasChanged);
+        });
+
+        try
+        {
+            await HealthCheckerService.CheckManyAsync(urls, _maxConcurrency, progress, _cts.Token);
+        }
+        catch (OperationCanceledException) { }
+        finally
+        {
+            _isRunning = false;
+            _activeCount = 0;
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private void Stop() => _cts?.Cancel();
+}
